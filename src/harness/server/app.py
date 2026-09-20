@@ -94,7 +94,7 @@ def build_app_from_agent(agent_instance: Any, *, url: str) -> FastAPI:
         raise TypeError(f"{type(agent_instance).__name__} is not decorated with @agent.")
 
     configure_logging()
-    agent_card = agent_card_from_meta(meta, url=url)
+    agent_card = agent_card_from_meta(meta, url=url, streaming=True)
     executor = HarnessAgentExecutor(agent_instance, meta)
     return _assemble_app(
         agent_card=agent_card,

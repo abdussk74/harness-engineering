@@ -7,10 +7,27 @@ conversational protocol, not an RPC-per-tool one. Harness's convention
 optional when the agent only exposes one skill. Structured arguments go
 in a `DataPart` matching the skill's parameter names; a single-parameter
 skill also accepts a plain text part as a convenience.
+
+Multi-turn `ctx.task.request_input()` note: the a2a-sdk's AgentExecutor
+contract requires `execute()` to *return* to yield control on an
+input-required task — the framework's per-task producer loop can't
+dequeue the follow-up message until execute() returns. So a skill body
+can't literally suspend on the call stack that execute() awaits
+directly. Instead, each fresh invocation runs the skill as an
+independent `asyncio.Task`; execute() waits only until that task either
+finishes or signals it's parked on `request_input()`, then returns
+either way. The *same* ActiveTask (and its event queue) persists across
+multiple execute() calls for one task_id, so the skill task keeps
+running and enqueuing events after execute() has already returned. The
+per-task-id `_pending` registry is what lets the *next* execute() call
+find that still-running skill task and resolve its waiting future
+instead of starting the skill over.
 """
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import dataclass
 from typing import Any
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -19,11 +36,21 @@ from a2a.server.tasks import TaskUpdater
 from a2a.types import Part, Task, TaskState, TaskStatus
 from google.protobuf import json_format
 
-from harness.context import Context, TaskHandle
+from harness._internal.task_controller import LiveTaskController
+from harness.context import Context
 from harness.decorators import AgentMeta, SkillMeta
 from harness.logging.structlog_config import get_logger
 
 SKILL_METADATA_KEY = "harness_skill"
+
+
+@dataclass
+class _PendingSkill:
+    """One skill invocation still alive across execute() calls."""
+
+    skill_task: asyncio.Task[None]
+    waiting_event: asyncio.Event
+    input_future: asyncio.Future[str] | None = None
 
 
 class HarnessAgentExecutor(AgentExecutor):
@@ -33,19 +60,46 @@ class HarnessAgentExecutor(AgentExecutor):
         self._agent_instance = agent_instance
         self._meta = meta
         self._skills_by_id = {s.id: s for s in meta.skills}
+        self._pending: dict[str, _PendingSkill] = {}
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         assert context.task_id is not None
         assert context.context_id is not None
+        task_id = context.task_id
+
+        pending = self._pending.get(task_id)
+        if pending is not None:
+            await self._resume(context, pending)
+            return
+
+        await self._start(context, event_queue)
+
+    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
+        assert context.task_id is not None
+        assert context.context_id is not None
+        task_id = context.task_id
+
+        pending = self._pending.pop(task_id, None)
+        if pending is not None and not pending.skill_task.done():
+            pending.skill_task.cancel()
+
+        updater = TaskUpdater(event_queue, task_id, context.context_id)
+        await updater.cancel()
+
+    async def _start(self, context: RequestContext, event_queue: EventQueue) -> None:
+        assert context.task_id is not None
+        assert context.context_id is not None
+        task_id = context.task_id
+        context_id = context.context_id
 
         await event_queue.enqueue_event(
             Task(
-                id=context.task_id,
-                context_id=context.context_id,
+                id=task_id,
+                context_id=context_id,
                 status=TaskStatus(state=TaskState.TASK_STATE_SUBMITTED),
             )
         )
-        updater = TaskUpdater(event_queue, context.task_id, context.context_id)
+        updater = TaskUpdater(event_queue, task_id, context_id)
         await updater.start_work()
 
         skill_meta = self._resolve_skill(context)
@@ -62,31 +116,67 @@ class HarnessAgentExecutor(AgentExecutor):
         log = get_logger(
             agent_name=self._meta.name,
             skill_id=skill_meta.id,
-            task_id=context.task_id,
-            context_id=context.context_id,
+            task_id=task_id,
+            context_id=context_id,
+        )
+        waiting_event = asyncio.Event()
+
+        def on_wait_for_input() -> asyncio.Future[str]:
+            future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+            self._pending[task_id].input_future = future
+            waiting_event.set()
+            return future
+
+        task_controller = LiveTaskController(
+            id=task_id,
+            context_id=context_id,
+            updater=updater,
+            on_wait_for_input=on_wait_for_input,
         )
         ctx = Context(
             log=log,
-            task=TaskHandle(id=context.task_id, context_id=context.context_id),
+            task=task_controller,
             agent_name=self._meta.name,
             skill_id=skill_meta.id,
         )
-
         method = getattr(self._agent_instance, skill_meta.method_name)
-        try:
-            result = await method(**kwargs, ctx=ctx)
-        except Exception as exc:  # noqa: BLE001 - any skill failure becomes a failed task
-            log.error("skill failed", error=str(exc))
-            await updater.failed(updater.new_agent_message([Part(text=str(exc))]))
-            return
 
-        await updater.complete(updater.new_agent_message([Part(text=str(result))]))
+        async def run_skill() -> None:
+            try:
+                result = await method(**kwargs, ctx=ctx)
+            except Exception as exc:  # noqa: BLE001 - any skill failure becomes a failed task
+                log.error("skill failed", error=str(exc))
+                await updater.failed(updater.new_agent_message([Part(text=str(exc))]))
+                return
+            finally:
+                self._pending.pop(task_id, None)
+            await updater.complete(updater.new_agent_message([Part(text=str(result))]))
 
-    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
-        assert context.task_id is not None
-        assert context.context_id is not None
-        updater = TaskUpdater(event_queue, context.task_id, context.context_id)
-        await updater.cancel()
+        skill_task = asyncio.create_task(run_skill())
+        pending = _PendingSkill(skill_task=skill_task, waiting_event=waiting_event)
+        self._pending[task_id] = pending
+        await self._wait_for_pause_or_completion(pending)
+
+    async def _resume(self, context: RequestContext, pending: _PendingSkill) -> None:
+        if pending.input_future is not None and not pending.input_future.done():
+            pending.input_future.set_result(context.get_user_input())
+        pending.waiting_event.clear()
+        await self._wait_for_pause_or_completion(pending)
+
+    @staticmethod
+    async def _wait_for_pause_or_completion(pending: _PendingSkill) -> None:
+        waiting_task = asyncio.create_task(pending.waiting_event.wait())
+        done, still_pending = await asyncio.wait(
+            {pending.skill_task, waiting_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+        if waiting_task in still_pending:
+            waiting_task.cancel()
+        if pending.skill_task in done:
+            exc = pending.skill_task.exception()
+            if exc is not None:
+                raise exc
+        # else: the skill is parked in request_input(); _pending keeps its
+        # entry so the next execute() call for this task_id can resume it.
 
     def _resolve_skill(self, context: RequestContext) -> SkillMeta | str:
         """Returns the SkillMeta to invoke, or an error string for the caller."""

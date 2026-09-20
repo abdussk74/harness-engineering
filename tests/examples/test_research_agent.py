@@ -42,7 +42,12 @@ def test_agent_card_reflects_decorator_metadata(client: TestClient) -> None:
             "id": "summarize",
             "name": "summarize",
             "description": "Summarize a topic with sources",
-        }
+        },
+        {
+            "id": "deep_research",
+            "name": "deep_research",
+            "description": "Deep research with progress updates and clarification",
+        },
     ]
 
 
@@ -55,11 +60,12 @@ def test_send_message_with_single_param_uses_plain_text(client: TestClient) -> N
             "id": "1",
             "method": "SendMessage",
             "params": {
+                "metadata": {"harness_skill": "summarize"},
                 "message": {
                     "messageId": "msg-1",
                     "role": "ROLE_USER",
                     "parts": [{"text": "quantum computing"}],
-                }
+                },
             },
         },
     )
