@@ -24,8 +24,10 @@ from fastapi.responses import RedirectResponse
 from harness._internal.executor import SingleSkillExecutor, SkillFn
 from harness._internal.multi_skill_executor import HarnessAgentExecutor
 from harness.card import agent_card_from_meta, build_agent_card
+from harness.config import HarnessConfig
 from harness.decorators import agent_meta
 from harness.logging.structlog_config import configure_logging
+from harness.server.auth import AuthMiddleware, BearerTokenAuth
 
 _LEGACY_AGENT_CARD_PATH = "/.well-known/agent.json"
 
@@ -83,23 +85,33 @@ def build_app(
     )
 
 
-def build_app_from_agent(agent_instance: Any, *, url: str) -> FastAPI:
+def build_app_from_agent(
+    agent_instance: Any, *, url: str, config: HarnessConfig | None = None
+) -> FastAPI:
     """Assembles a FastAPI app for a `@agent`-decorated instance.
 
     Raises TypeError if `agent_instance`'s class was never decorated
-    with `@agent` (i.e. has no skills registered).
+    with `@agent` (i.e. has no skills registered). Every route — JSON-RPC
+    and Agent Card alike — requires `config.api_token` as a Bearer token
+    when one is configured; unset means no auth (fine for pure-localhost
+    dev, but `harness dev` should set one).
     """
     meta = agent_meta(agent_instance)
     if meta is None:
         raise TypeError(f"{type(agent_instance).__name__} is not decorated with @agent.")
+    if config is None:
+        config = HarnessConfig()
 
     configure_logging()
     agent_card = agent_card_from_meta(meta, url=url, streaming=True)
     executor = HarnessAgentExecutor(agent_instance, meta)
-    return _assemble_app(
+    app = _assemble_app(
         agent_card=agent_card,
         executor=executor,
         title=meta.name,
         description=meta.description,
         version=meta.version,
     )
+    if config.api_token:
+        app.add_middleware(AuthMiddleware, scheme=BearerTokenAuth(config.api_token))
+    return app
