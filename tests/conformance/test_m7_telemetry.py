@@ -18,7 +18,7 @@ import asyncio
 import importlib.util
 import os
 import socket
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +27,7 @@ import pytest
 import uvicorn
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
@@ -54,7 +54,7 @@ def _free_port() -> int:
 
 
 @pytest.fixture
-async def citation_checker_url() -> Iterator[str]:
+async def citation_checker_url() -> AsyncIterator[str]:
     # The Agent Card bakes in its own URL at build time, and create_client()
     # connects to *that* declared URL, not the one used to fetch the card —
     # so the real port must be known before build_app_from_agent(), not
@@ -156,9 +156,9 @@ async def test_multi_agent_call_chain_shares_one_trace(
     nested_request = next(s for s in post_spans if s.parent is not None)
     assert nested_request is not root_request
 
-    ancestors = []
-    current = nested_request
-    while current.parent is not None:
+    ancestors: list[ReadableSpan] = []
+    current: ReadableSpan | None = nested_request
+    while current is not None and current.parent is not None:
         current = span_by_id.get(current.parent.span_id)
         if current is None:
             break

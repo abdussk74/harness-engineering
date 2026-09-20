@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from starlette.testclient import TestClient
 
 from harness import Context, agent, skill
@@ -18,7 +20,7 @@ class GuardedAgent:
         return f"echo: {text}"
 
 
-def _send_message_json() -> dict:
+def _send_message_json() -> dict[str, Any]:
     return {
         "jsonrpc": "2.0",
         "id": "1",

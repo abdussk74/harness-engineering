@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 from starlette.testclient import TestClient
@@ -38,8 +39,12 @@ def _send(
     text: str,
     task_id: str | None = None,
     context_id: str | None = None,
-) -> dict:
-    message: dict = {"messageId": "m-" + skill_id, "role": "ROLE_USER", "parts": [{"text": text}]}
+) -> dict[str, Any]:
+    message: dict[str, Any] = {
+        "messageId": "m-" + skill_id,
+        "role": "ROLE_USER",
+        "parts": [{"text": text}],
+    }
     if task_id:
         message["taskId"] = task_id
     if context_id:

@@ -7,6 +7,7 @@ lands in M2 and gets its own conformance tests without touching these.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 from starlette.testclient import TestClient
@@ -36,7 +37,7 @@ def client() -> Iterator[TestClient]:
         yield test_client
 
 
-def _send_message(client: TestClient, text: str) -> dict:
+def _send_message(client: TestClient, text: str) -> dict[str, Any]:
     response = client.post(
         "/",
         headers=_A2A_VERSION_HEADERS,
