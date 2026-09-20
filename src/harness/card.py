@@ -15,6 +15,30 @@ from a2a.types import (
 )
 from a2a.utils.constants import TransportProtocol
 
+from harness.decorators import AgentMeta
+
+
+def agent_card_from_meta(meta: AgentMeta, *, url: str, streaming: bool = False) -> AgentCard:
+    """Builds an Agent Card from `@agent`/`@skill` decorator metadata."""
+    skills = [
+        AgentSkill(
+            id=skill_meta.id,
+            name=skill_meta.id,
+            description=skill_meta.description,
+            tags=list(skill_meta.tags),
+            examples=list(skill_meta.examples),
+        )
+        for skill_meta in meta.skills
+    ]
+    return build_agent_card(
+        name=meta.name,
+        description=meta.description,
+        version=meta.version,
+        url=url,
+        skills=skills,
+        streaming=streaming,
+    )
+
 
 def build_agent_card(
     *,

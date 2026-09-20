@@ -1,5 +1,8 @@
-"""Harness SDK.
+"""Harness SDK: write `@agent`/`@skill` methods, get an A2A server for free."""
 
-Public API (``agent``, ``skill``, ``Context``, ``Artifact``) lands in M2.
-This module is a placeholder so the package is importable from M0 onward.
-"""
+from __future__ import annotations
+
+from harness.context import Context
+from harness.decorators import agent, skill
+
+__all__ = ["Context", "agent", "skill"]
