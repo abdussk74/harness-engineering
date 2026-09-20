@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# uv
+.python-version
+
+# Env / secrets
+.env
+!.env.example
+
+# Harness-generated (compose files, task store db, etc.)
+.harness/
+
+# Docker
+*.log
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
