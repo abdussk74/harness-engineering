@@ -15,6 +15,7 @@ from typer.testing import CliRunner
 
 from harness_cli.codegen.dockerfile import render_dockerfile
 from harness_cli.main import app
+from tests.cli._util import squeeze
 
 runner = CliRunner()
 
@@ -37,7 +38,7 @@ def test_build_fails_without_pyproject(tmp_path: Path, monkeypatch: pytest.Monke
     result = runner.invoke(app, ["build", "--tag", "x:dev"])
 
     assert result.exit_code != 0
-    assert "No pyproject.toml" in result.output
+    assert "No pyproject.toml" in squeeze(result.output)
 
 
 def test_build_fails_without_harness_entrypoint(
@@ -49,7 +50,7 @@ def test_build_fails_without_harness_entrypoint(
     result = runner.invoke(app, ["build", "--tag", "x:dev"])
 
     assert result.exit_code != 0
-    assert "tool.harness" in result.output
+    assert "tool.harness" in squeeze(result.output)
 
 
 def test_build_rejects_multi_platform_without_push(
@@ -63,4 +64,4 @@ def test_build_rejects_multi_platform_without_push(
     )
 
     assert result.exit_code != 0
-    assert "--push" in result.output
+    assert "--push" in squeeze(result.output)

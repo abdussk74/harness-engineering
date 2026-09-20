@@ -6,6 +6,7 @@ import pytest
 from typer.testing import CliRunner
 
 from harness_cli.main import app
+from tests.cli._util import squeeze
 
 runner = CliRunner()
 
@@ -16,7 +17,7 @@ def test_deploy_fails_without_pyproject(tmp_path: Path, monkeypatch: pytest.Monk
     result = runner.invoke(app, ["deploy", "--target", "local"])
 
     assert result.exit_code != 0
-    assert "No pyproject.toml" in result.output
+    assert "No pyproject.toml" in squeeze(result.output)
 
 
 def test_deploy_rejects_unknown_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -29,7 +30,7 @@ def test_deploy_rejects_unknown_target(tmp_path: Path, monkeypatch: pytest.Monke
     result = runner.invoke(app, ["deploy", "--target", "nonsense"])
 
     assert result.exit_code != 0
-    assert "Unknown target" in result.output
+    assert "Unknown target" in squeeze(result.output)
 
 
 def test_deploy_k8s_requires_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -42,4 +43,4 @@ def test_deploy_k8s_requires_registry(tmp_path: Path, monkeypatch: pytest.Monkey
     result = runner.invoke(app, ["deploy", "--target", "k8s"])
 
     assert result.exit_code != 0
-    assert "--registry" in result.output
+    assert "--registry" in squeeze(result.output)

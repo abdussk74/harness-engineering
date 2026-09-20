@@ -14,6 +14,7 @@ import pytest
 from typer.testing import CliRunner
 
 from harness_cli.main import app
+from tests.cli._util import squeeze
 
 runner = CliRunner()
 
@@ -24,7 +25,7 @@ def test_dev_fails_without_pyproject(tmp_path: Path, monkeypatch: pytest.MonkeyP
     result = runner.invoke(app, ["dev"])
 
     assert result.exit_code != 0
-    assert "No pyproject.toml" in result.output
+    assert "No pyproject.toml" in squeeze(result.output)
 
 
 def test_dev_fails_without_harness_entrypoint(
@@ -36,4 +37,4 @@ def test_dev_fails_without_harness_entrypoint(
     result = runner.invoke(app, ["dev"])
 
     assert result.exit_code != 0
-    assert "tool.harness" in result.output
+    assert "tool.harness" in squeeze(result.output)
