@@ -36,6 +36,23 @@ def test_render_compose_omits_token_when_not_configured() -> None:
     )
 
     assert "HARNESS_API_TOKEN" not in content
+    assert "HARNESS_LLM_PROVIDER" not in content
+    assert "HARNESS_OLLAMA_BASE_URL" not in content
+
+
+def test_render_compose_wires_ollama_provider() -> None:
+    content = render_compose(
+        agent_name="x",
+        workspace_root=Path("/repo"),
+        agent_dir=Path("/repo/x"),
+        agent_dockerfile=Path("/repo/.harness/x.Dockerfile"),
+        otel_collector_config=Path("/repo/.harness/otel-collector-config.yaml"),
+        llm_provider="ollama",
+        ollama_base_url="http://host.docker.internal:11434",
+    )
+
+    assert "HARNESS_LLM_PROVIDER: ollama" in content
+    assert "HARNESS_OLLAMA_BASE_URL: http://host.docker.internal:11434" in content
 
 
 def test_render_otel_collector_config_wires_otlp_to_jaeger() -> None:

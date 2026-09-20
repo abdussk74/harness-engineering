@@ -18,6 +18,14 @@ _AGENT_PORT = 8080
 _DASHBOARD_PORT = 3400
 _JAEGER_UI_PORT = 16686
 
+# Docker Desktop's DNS name for reaching the host from inside a
+# container; works out of the box on Docker Desktop (Mac/Windows) and
+# on Docker 20.10+ with the host-gateway extra_hosts entry. Colima
+# needs `colima start --network-address` or an explicit host IP instead
+# — not something this CLI can detect, so this is a starting default,
+# not a guarantee.
+_OLLAMA_HOST_GATEWAY_URL = "http://host.docker.internal:11434"
+
 
 def _preflight() -> None:
     failures = [c for c in run_checks() if c.required and not c.ok]
@@ -34,6 +42,12 @@ def dev(
     detach: bool = typer.Option(
         False, "--detach", "-d", help="Run in the background instead of streaming logs"
     ),
+    llm_provider: str = typer.Option(
+        None,
+        "--llm-provider",
+        help="ctx.llm's provider: anthropic (default), openai, or ollama "
+        "(develop without spending API tokens, using a local model).",
+    ),
 ) -> None:
     """Runs the agent in this directory as a container, hot-reloading on
     source changes, alongside a local OTel Collector, Jaeger, and dashboard."""
@@ -42,6 +56,18 @@ def dev(
     workspace_root = find_workspace_root(project_dir)
     agent_dir = project_dir.relative_to(workspace_root)
     config = HarnessConfig()
+    resolved_llm_provider = llm_provider or config.llm_provider
+    ollama_base_url = None
+    if resolved_llm_provider == "ollama":
+        ollama_base_url = (
+            _OLLAMA_HOST_GATEWAY_URL
+            if config.ollama_base_url == "http://localhost:11434"
+            else config.ollama_base_url
+        )
+        typer.echo(
+            f"Using Ollama at {ollama_base_url} — on Colima, override with "
+            "HARNESS_OLLAMA_BASE_URL in .env if this isn't reachable from containers.\n"
+        )
 
     _preflight()
 
@@ -67,6 +93,8 @@ def dev(
             agent_port=_AGENT_PORT,
             dashboard_port=_DASHBOARD_PORT,
             api_token=config.api_token,
+            llm_provider=resolved_llm_provider,
+            ollama_base_url=ollama_base_url,
         )
     )
 

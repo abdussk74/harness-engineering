@@ -8,6 +8,7 @@ dependencies = [
     "a2a-sdk[fastapi]>=1.1.4",
     "langchain-anthropic>=1.7.2",
     "langchain-core>=1.6.3",
+    "langchain-ollama>=1.1.0",
     "opentelemetry-exporter-otlp-proto-http>=1.44.0",
     "opentelemetry-instrumentation-fastapi>=0.65b0",
     "opentelemetry-instrumentation-httpx>=0.65b0",

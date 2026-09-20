@@ -24,7 +24,7 @@ from fastapi.responses import RedirectResponse
 from harness._internal.executor import SingleSkillExecutor, SkillFn
 from harness._internal.multi_skill_executor import HarnessAgentExecutor
 from harness.card import agent_card_from_meta, build_agent_card
-from harness.config import HarnessConfig
+from harness.config import HarnessConfig, load_env_file
 from harness.decorators import agent_meta
 from harness.llm.client import TracedChatModel
 from harness.logging.structlog_config import configure_logging
@@ -110,6 +110,7 @@ def build_app_from_agent(
     meta = agent_meta(agent_instance)
     if meta is None:
         raise TypeError(f"{type(agent_instance).__name__} is not decorated with @agent.")
+    load_env_file()
     if config is None:
         config = HarnessConfig()
 

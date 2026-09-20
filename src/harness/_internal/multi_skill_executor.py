@@ -73,7 +73,9 @@ class HarnessAgentExecutor(AgentExecutor):
         self._pending: dict[str, _PendingSkill] = {}
         config = config or HarnessConfig()
         self._llm: TracedChatModel = llm or build_chat_model(
-            provider=config.llm_provider, model=config.llm_model
+            provider=config.llm_provider,
+            model=config.llm_model,
+            ollama_base_url=config.ollama_base_url,
         )
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
