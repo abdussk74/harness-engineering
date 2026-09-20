@@ -14,6 +14,7 @@ _DEV_PORTS: dict[int, str] = {
     4317: "OTel collector (OTLP gRPC)",
     4318: "OTel collector (OTLP HTTP)",
     16686: "Jaeger UI",
+    3400: "dashboard (harness dev)",
 }
 
 
@@ -109,9 +110,9 @@ def _print(check: Check) -> None:
     typer.echo(f"{marker} {check.name}: {check.detail}")
 
 
-def doctor() -> None:
-    """Check that Docker, buildx, compose, uv, and required ports are ready."""
-    checks = [
+def run_checks() -> list[Check]:
+    """All environment checks, for `doctor` to print and `dev` to preflight."""
+    return [
         _check_docker_cli(),
         _check_docker_daemon(),
         _check_buildx(),
@@ -120,6 +121,11 @@ def doctor() -> None:
         *(_check_port(port, purpose) for port, purpose in _DEV_PORTS.items()),
         _check_runtime_context(),
     ]
+
+
+def doctor() -> None:
+    """Check that Docker, buildx, compose, uv, and required ports are ready."""
+    checks = run_checks()
 
     for check in checks:
         _print(check)

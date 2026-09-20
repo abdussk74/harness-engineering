@@ -5,6 +5,7 @@ from __future__ import annotations
 import typer
 
 from harness_cli.commands.build import build
+from harness_cli.commands.dev import dev
 from harness_cli.commands.doctor import doctor
 
 app = typer.Typer(
@@ -21,6 +22,7 @@ def _callback() -> None:
 
 app.command(name="doctor")(doctor)
 app.command(name="build")(build)
+app.command(name="dev")(dev)
 
 
 def main() -> None:

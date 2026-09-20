@@ -3,34 +3,12 @@
 from __future__ import annotations
 
 import subprocess
-import tomllib
 from pathlib import Path
 
 import typer
 
 from harness_cli.codegen.dockerfile import render_dockerfile
-
-
-def _find_workspace_root(start: Path) -> Path:
-    for candidate in [start, *start.parents]:
-        if (candidate / "src" / "harness" / "__init__.py").exists():
-            return candidate
-    raise typer.BadParameter(
-        "Could not find the Harness workspace root (no src/harness/ in any parent directory)."
-    )
-
-
-def _read_entrypoint(project_dir: Path) -> str:
-    pyproject_path = project_dir / "pyproject.toml"
-    if not pyproject_path.exists():
-        raise typer.BadParameter(f"No pyproject.toml in {project_dir}.")
-    config = tomllib.loads(pyproject_path.read_text())
-    entrypoint = config.get("tool", {}).get("harness", {}).get("entrypoint")
-    if not entrypoint:
-        raise typer.BadParameter(
-            f"{pyproject_path} is missing [tool.harness]\\nentrypoint = 'module:ClassName'"
-        )
-    return str(entrypoint)
+from harness_cli.project import find_workspace_root, read_entrypoint
 
 
 def build(
@@ -46,8 +24,8 @@ def build(
         )
 
     project_dir = Path.cwd()
-    entrypoint = _read_entrypoint(project_dir)
-    workspace_root = _find_workspace_root(project_dir)
+    entrypoint = read_entrypoint(project_dir)
+    workspace_root = find_workspace_root(project_dir)
     agent_dir = project_dir.relative_to(workspace_root)
 
     dockerfile_content = render_dockerfile(entrypoint=entrypoint, agent_dir=str(agent_dir))
