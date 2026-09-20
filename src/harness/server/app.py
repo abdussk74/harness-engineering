@@ -26,8 +26,10 @@ from harness._internal.multi_skill_executor import HarnessAgentExecutor
 from harness.card import agent_card_from_meta, build_agent_card
 from harness.config import HarnessConfig
 from harness.decorators import agent_meta
+from harness.llm.client import TracedChatModel
 from harness.logging.structlog_config import configure_logging
 from harness.server.auth import AuthMiddleware, BearerTokenAuth
+from harness.telemetry.otel import configure_tracing, instrument_app
 
 _LEGACY_AGENT_CARD_PATH = "/.well-known/agent.json"
 
@@ -90,7 +92,11 @@ def build_app(
 
 
 def build_app_from_agent(
-    agent_instance: Any, *, url: str, config: HarnessConfig | None = None
+    agent_instance: Any,
+    *,
+    url: str,
+    config: HarnessConfig | None = None,
+    llm: TracedChatModel | None = None,
 ) -> FastAPI:
     """Assembles a FastAPI app for a `@agent`-decorated instance.
 
@@ -98,7 +104,8 @@ def build_app_from_agent(
     with `@agent` (i.e. has no skills registered). Every route — JSON-RPC
     and Agent Card alike — requires `config.api_token` as a Bearer token
     when one is configured; unset means no auth (fine for pure-localhost
-    dev, but `harness dev` should set one).
+    dev, but `harness dev` should set one). `llm` overrides `ctx.llm`'s
+    chat model — a test seam; production wiring builds it from `config`.
     """
     meta = agent_meta(agent_instance)
     if meta is None:
@@ -107,8 +114,9 @@ def build_app_from_agent(
         config = HarnessConfig()
 
     configure_logging()
+    configure_tracing(meta.name)
     agent_card = agent_card_from_meta(meta, url=url, streaming=True)
-    executor = HarnessAgentExecutor(agent_instance, meta)
+    executor = HarnessAgentExecutor(agent_instance, meta, config, llm=llm)
     app = _assemble_app(
         agent_card=agent_card,
         executor=executor,
@@ -118,4 +126,5 @@ def build_app_from_agent(
     )
     if config.api_token:
         app.add_middleware(AuthMiddleware, scheme=BearerTokenAuth(config.api_token))
+    instrument_app(app)
     return app

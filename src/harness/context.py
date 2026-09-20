@@ -3,15 +3,22 @@
 `task` is a `TaskController` Protocol so this module stays free of any
 a2a-sdk import (only `harness._internal` is allowed to import `a2a`
 directly) — the concrete implementation lives in
-`harness._internal.task_controller.LiveTaskController`.
+`harness._internal.task_controller.LiveTaskController`. `call` is typed
+structurally for the same reason — its implementation
+(`harness._internal.outbound_call.call_agent`) is an a2a-sdk client
+underneath. `llm` is the one exception: LangChain is the advertised
+public interface (`ctx.llm.ainvoke(...).content`, straight from the
+north-star example), not something Harness hides.
 """
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 import structlog
+from langchain_core.messages import BaseMessage
 
 
 @runtime_checkable
@@ -38,11 +45,19 @@ class TaskController(Protocol):
         ...
 
 
+@runtime_checkable
+class ChatModel(Protocol):
+    async def ainvoke(self, prompt: str) -> BaseMessage: ...
+
+
 @dataclass
 class Context:
-    """Per-invocation context: logging, task control, agent/skill identity."""
+    """Per-invocation context: logging, task control, LLM, outbound
+    calls, agent/skill identity."""
 
     log: structlog.typing.FilteringBoundLogger
     task: TaskController
+    llm: ChatModel
+    call: Callable[..., Awaitable[str]]
     agent_name: str
     skill_id: str

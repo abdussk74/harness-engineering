@@ -44,6 +44,11 @@ def test_agent_card_reflects_decorator_metadata(client: TestClient) -> None:
             "description": "Summarize a topic with sources",
         },
         {
+            "id": "summarize_and_verify",
+            "name": "summarize_and_verify",
+            "description": "Summarize a topic with an LLM, then verify it via citation-checker",
+        },
+        {
             "id": "deep_research",
             "name": "deep_research",
             "description": "Deep research with progress updates and clarification",

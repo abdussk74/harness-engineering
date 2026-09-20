@@ -16,3 +16,9 @@ class HarnessConfig(BaseSettings):
     api_token: str | None = None
     """Bearer token required on every request when set. Unset = no auth
     (fine for pure-localhost dev; `harness dev` should set one)."""
+
+    llm_provider: str | None = None
+    """ctx.llm's provider: "anthropic" (default) or "openai"."""
+
+    llm_model: str | None = None
+    """ctx.llm's model name. Defaults per-provider if unset."""

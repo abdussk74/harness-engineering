@@ -36,9 +36,12 @@ from a2a.server.tasks import TaskUpdater
 from a2a.types import Part, Task, TaskState, TaskStatus
 from google.protobuf import json_format
 
+from harness._internal.outbound_call import call_agent
 from harness._internal.task_controller import LiveTaskController
+from harness.config import HarnessConfig
 from harness.context import Context
 from harness.decorators import AgentMeta, SkillMeta
+from harness.llm.client import TracedChatModel, build_chat_model
 from harness.logging.structlog_config import get_logger
 
 SKILL_METADATA_KEY = "harness_skill"
@@ -56,11 +59,22 @@ class _PendingSkill:
 class HarnessAgentExecutor(AgentExecutor):
     """Routes each request to one `@skill` method on a decorated agent instance."""
 
-    def __init__(self, agent_instance: Any, meta: AgentMeta) -> None:
+    def __init__(
+        self,
+        agent_instance: Any,
+        meta: AgentMeta,
+        config: HarnessConfig | None = None,
+        *,
+        llm: TracedChatModel | None = None,
+    ) -> None:
         self._agent_instance = agent_instance
         self._meta = meta
         self._skills_by_id = {s.id: s for s in meta.skills}
         self._pending: dict[str, _PendingSkill] = {}
+        config = config or HarnessConfig()
+        self._llm: TracedChatModel = llm or build_chat_model(
+            provider=config.llm_provider, model=config.llm_model
+        )
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         assert context.task_id is not None
@@ -136,6 +150,8 @@ class HarnessAgentExecutor(AgentExecutor):
         ctx = Context(
             log=log,
             task=task_controller,
+            llm=self._llm,
+            call=call_agent,
             agent_name=self._meta.name,
             skill_id=skill_meta.id,
         )
