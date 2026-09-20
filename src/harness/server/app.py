@@ -53,6 +53,10 @@ def _assemble_app(
     async def _legacy_agent_card_redirect() -> RedirectResponse:
         return RedirectResponse(url=AGENT_CARD_WELL_KNOWN_PATH, status_code=308)
 
+    @app.get("/healthz", include_in_schema=False)
+    async def _healthz() -> dict[str, str]:
+        return {"status": "ok"}
+
     return app
 
 

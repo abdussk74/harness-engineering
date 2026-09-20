@@ -34,12 +34,19 @@ class BearerTokenAuth:
         return scheme.lower() == "bearer" and value == self._token
 
 
+_EXEMPT_PATHS = {"/healthz"}
+"""Container liveness/readiness probes can't be expected to carry a
+bearer token; this is the one deliberate hole in "auth on every route"."""
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp, scheme: AuthScheme) -> None:
         super().__init__(app)
         self._scheme = scheme
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        if request.url.path in _EXEMPT_PATHS:
+            return await call_next(request)
         if not await self._scheme.authenticate(request):
             return JSONResponse(
                 {"error": "Unauthorized: missing or invalid bearer token"},

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import typer
 
+from harness_cli.commands.build import build
 from harness_cli.commands.doctor import doctor
 
 app = typer.Typer(
@@ -15,15 +16,11 @@ app = typer.Typer(
 
 @app.callback()
 def _callback() -> None:
-    """Zero-ops control plane for A2A agents.
-
-    A dedicated callback keeps Typer in subcommand mode (`harness doctor`)
-    instead of collapsing to a single implicit command while `doctor` is
-    still the only one registered.
-    """
+    """Zero-ops control plane for A2A agents."""
 
 
 app.command(name="doctor")(doctor)
+app.command(name="build")(build)
 
 
 def main() -> None:

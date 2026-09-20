@@ -1,0 +1,2 @@
+[tool.harness]
+entrypoint = "agent:ResearchAgent"
