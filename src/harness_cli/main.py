@@ -5,6 +5,7 @@ from __future__ import annotations
 import typer
 
 from harness_cli.commands.build import build
+from harness_cli.commands.deploy import deploy
 from harness_cli.commands.dev import dev
 from harness_cli.commands.doctor import doctor
 
@@ -23,6 +24,7 @@ def _callback() -> None:
 app.command(name="doctor")(doctor)
 app.command(name="build")(build)
 app.command(name="dev")(dev)
+app.command(name="deploy")(deploy)
 
 
 def main() -> None:

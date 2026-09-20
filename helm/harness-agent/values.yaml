@@ -1,0 +1,40 @@
+# Generic values for any Harness-built agent image. `harness deploy
+# --target k8s` sets image.repository/tag and entrypoint from the
+# current project; everything else has a sane default.
+
+image:
+  repository: ""
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# module:ClassName for the @agent-decorated class -- required, same
+# convention as [tool.harness] entrypoint in the agent's pyproject.toml.
+entrypoint: ""
+
+port: 8080
+
+# Extra env vars merged in as-is: HARNESS_API_TOKEN,
+# OTEL_EXPORTER_OTLP_ENDPOINT, HARNESS_LLM_PROVIDER, etc.
+env: {}
+
+service:
+  type: ClusterIP
+  port: 8080
+
+resources: {}
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 3
+  periodSeconds: 5
