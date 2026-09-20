@@ -60,3 +60,35 @@ def test_render_otel_collector_config_wires_otlp_to_jaeger() -> None:
 
     assert "otlp:" in content
     assert "endpoint: jaeger:4317" in content
+
+
+def test_dashboard_gets_docker_internal_url_for_its_own_fetches_and_localhost_for_links() -> None:
+    content = render_compose(
+        agent_name="research-agent",
+        workspace_root=Path("/repo"),
+        agent_dir=Path("/repo/examples/research-agent"),
+        agent_dockerfile=Path("/repo/.harness/research-agent.Dockerfile"),
+        otel_collector_config=Path("/repo/.harness/otel-collector-config.yaml"),
+        agent_port=8080,
+    )
+
+    assert "HARNESS_AGENT_INTERNAL_URL: http://agent:8080" in content
+    assert "HARNESS_AGENT_PUBLIC_URL: http://localhost:8080" in content
+
+
+def test_dashboard_gets_the_token_but_not_the_agents_llm_provider_settings() -> None:
+    content = render_compose(
+        agent_name="x",
+        workspace_root=Path("/repo"),
+        agent_dir=Path("/repo/x"),
+        agent_dockerfile=Path("/repo/.harness/x.Dockerfile"),
+        otel_collector_config=Path("/repo/.harness/otel-collector-config.yaml"),
+        api_token="s3cret",
+        llm_provider="ollama",
+        ollama_base_url="http://host.docker.internal:11434",
+    )
+
+    dashboard_block = content.split("dashboard:")[1]
+    assert "HARNESS_API_TOKEN: s3cret" in dashboard_block
+    assert "HARNESS_LLM_PROVIDER" not in dashboard_block
+    assert "HARNESS_OLLAMA_BASE_URL" not in dashboard_block

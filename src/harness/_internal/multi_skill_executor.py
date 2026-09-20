@@ -35,6 +35,7 @@ from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
 from a2a.types import Part, Task, TaskState, TaskStatus
 from google.protobuf import json_format
+from opentelemetry import trace
 
 from harness._internal.outbound_call import call_agent
 from harness._internal.task_controller import LiveTaskController
@@ -45,6 +46,7 @@ from harness.llm.client import TracedChatModel, build_chat_model
 from harness.logging.structlog_config import get_logger
 
 SKILL_METADATA_KEY = "harness_skill"
+_tracer = trace.get_tracer("harness.executor")
 
 
 @dataclass
@@ -107,6 +109,17 @@ class HarnessAgentExecutor(AgentExecutor):
         assert context.context_id is not None
         task_id = context.task_id
         context_id = context.context_id
+
+        # A short, self-contained span tagged with the task_id, since
+        # there's no other natural correlation between an A2A task_id and
+        # an OTel trace_id — this is what the dashboard's per-task Jaeger
+        # link searches for. Deliberately its own span rather than
+        # tagging whatever's "current": by the time a background/resumed
+        # execute() call reaches here, the ambient span from a2a-sdk's own
+        # internals may already have ended, and setting an attribute on an
+        # ended span is silently dropped.
+        with _tracer.start_as_current_span("harness.task"):
+            trace.get_current_span().set_attribute("harness.task_id", task_id)
 
         await event_queue.enqueue_event(
             Task(
