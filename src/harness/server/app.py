@@ -1,0 +1,66 @@
+"""Builds a spec-compliant A2A JSON-RPC server as a FastAPI app.
+
+M1: one hardcoded skill, in-memory task store, no auth. Later milestones
+layer on: multi-skill routing + Context (M2), full task lifecycle + SSE
+(M3), auth middleware (M4).
+"""
+
+from __future__ import annotations
+
+from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.routes.agent_card_routes import create_agent_card_routes
+from a2a.server.routes.fastapi_routes import add_a2a_routes_to_fastapi
+from a2a.server.routes.jsonrpc_routes import create_jsonrpc_routes
+from a2a.server.tasks import InMemoryTaskStore
+from a2a.types import AgentSkill
+from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
+from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
+
+from harness._internal.executor import SingleSkillExecutor, SkillFn
+from harness.card import build_agent_card
+
+_LEGACY_AGENT_CARD_PATH = "/.well-known/agent.json"
+
+
+def build_app(
+    *,
+    name: str,
+    description: str,
+    version: str,
+    url: str,
+    skill_id: str,
+    skill_name: str,
+    skill_description: str,
+    skill_fn: SkillFn,
+) -> FastAPI:
+    """Assembles a FastAPI app implementing the A2A protocol for one skill."""
+    agent_skill = AgentSkill(id=skill_id, name=skill_name, description=skill_description)
+    agent_card = build_agent_card(
+        name=name,
+        description=description,
+        version=version,
+        url=url,
+        skills=[agent_skill],
+    )
+
+    executor = SingleSkillExecutor(skill_fn)
+    task_store = InMemoryTaskStore()
+    request_handler = DefaultRequestHandler(
+        agent_executor=executor,
+        task_store=task_store,
+        agent_card=agent_card,
+    )
+
+    app = FastAPI(title=name, description=description, version=version)
+    add_a2a_routes_to_fastapi(
+        app,
+        agent_card_routes=create_agent_card_routes(agent_card),
+        jsonrpc_routes=create_jsonrpc_routes(request_handler, rpc_url="/"),
+    )
+
+    @app.get(_LEGACY_AGENT_CARD_PATH, include_in_schema=False)
+    async def _legacy_agent_card_redirect() -> RedirectResponse:
+        return RedirectResponse(url=AGENT_CARD_WELL_KNOWN_PATH, status_code=308)
+
+    return app
