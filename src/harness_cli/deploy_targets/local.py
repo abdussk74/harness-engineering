@@ -9,7 +9,7 @@ import subprocess
 import uuid
 from collections.abc import Iterator
 
-from harness_cli.codegen.dockerfile import render_dockerfile
+from harness_cli.codegen.dockerfile import render_dockerfile, render_standalone_dockerfile
 from harness_cli.deploy_targets.base import (
     AgentBuildSpec,
     BuildResult,
@@ -21,13 +21,19 @@ from harness_cli.deploy_targets.base import (
 
 class LocalDeployTarget:
     def build(self, spec: AgentBuildSpec) -> BuildResult:
+        layout = spec.layout
         image = f"{spec.name}:local"
-        dockerfile_path = spec.workspace_root / ".harness" / f"{spec.name}.Dockerfile"
+        dockerfile_path = layout.build_context / ".harness" / f"{spec.name}.Dockerfile"
         dockerfile_path.parent.mkdir(exist_ok=True)
-        agent_dir = spec.project_dir.relative_to(spec.workspace_root)
-        dockerfile_path.write_text(
-            render_dockerfile(entrypoint=spec.entrypoint, agent_dir=str(agent_dir), port=spec.port)
-        )
+        if layout.mode == "monorepo":
+            content = render_dockerfile(
+                entrypoint=layout.entrypoint,
+                agent_dir=str(layout.agent_dir_relative_to_context),
+                port=spec.port,
+            )
+        else:
+            content = render_standalone_dockerfile(entrypoint=layout.entrypoint, port=spec.port)
+        dockerfile_path.write_text(content)
         subprocess.run(
             [
                 "docker",
@@ -40,7 +46,7 @@ class LocalDeployTarget:
                 "--tag",
                 image,
                 "--load",
-                str(spec.workspace_root),
+                str(layout.build_context),
             ],
             check=True,
         )

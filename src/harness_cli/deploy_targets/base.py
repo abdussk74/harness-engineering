@@ -9,18 +9,18 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Protocol
+
+from harness_cli.project import ProjectLayout
 
 
 @dataclass(frozen=True)
 class AgentBuildSpec:
-    """What to build: an agent project's identity."""
+    """What to build: an agent project's identity and packaging layout
+    (monorepo vs. standalone — see harness_cli.project.ProjectLayout)."""
 
     name: str
-    entrypoint: str
-    project_dir: Path
-    workspace_root: Path
+    layout: ProjectLayout
     port: int = 8080
 
 

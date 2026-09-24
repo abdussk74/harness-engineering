@@ -10,9 +10,13 @@ import typer
 
 from harness.config import HarnessConfig
 from harness_cli.codegen.compose import render_compose, render_otel_collector_config
-from harness_cli.codegen.dockerfile import render_dockerfile
+from harness_cli.codegen.dockerfile import (
+    render_dockerfile,
+    render_standalone_dashboard_dockerfile,
+    render_standalone_dockerfile,
+)
 from harness_cli.commands.doctor import run_checks
-from harness_cli.project import find_workspace_root, read_entrypoint
+from harness_cli.project import DEFAULT_HARNESS_GIT_URL, ProjectLayout, resolve_project
 
 _AGENT_PORT = 8080
 _DASHBOARD_PORT = 3400
@@ -38,6 +42,31 @@ def _preflight() -> None:
     raise typer.Exit(code=1)
 
 
+def _agent_dockerfile_content(layout: ProjectLayout) -> str:
+    if layout.mode == "monorepo":
+        return render_dockerfile(
+            entrypoint=layout.entrypoint,
+            agent_dir=str(layout.agent_dir_relative_to_context),
+            port=_AGENT_PORT,
+        )
+    return render_standalone_dockerfile(entrypoint=layout.entrypoint, port=_AGENT_PORT)
+
+
+def _dashboard_build_info(layout: ProjectLayout, harness_dir: Path) -> tuple[Path, Path]:
+    """Returns (dashboard_build_context, dashboard_dockerfile)."""
+    if layout.mode == "monorepo":
+        dockerfile = layout.build_context / "src" / "harness_cli" / "dashboard" / "Dockerfile"
+        return layout.build_context, dockerfile
+
+    git_url = layout.harness_git_url or DEFAULT_HARNESS_GIT_URL
+    dockerfile_content = render_standalone_dashboard_dockerfile(
+        git_url=git_url, git_ref=layout.harness_git_ref
+    )
+    dockerfile_path = harness_dir / "dashboard.Dockerfile"
+    dockerfile_path.write_text(dockerfile_content)
+    return harness_dir, dockerfile_path
+
+
 def dev(
     detach: bool = typer.Option(
         False, "--detach", "-d", help="Run in the background instead of streaming logs"
@@ -52,9 +81,7 @@ def dev(
     """Runs the agent in this directory as a container, hot-reloading on
     source changes, alongside a local OTel Collector, Jaeger, and dashboard."""
     project_dir = Path.cwd()
-    entrypoint = read_entrypoint(project_dir)
-    workspace_root = find_workspace_root(project_dir)
-    agent_dir = project_dir.relative_to(workspace_root)
+    layout = resolve_project(project_dir)
     config = HarnessConfig()
     resolved_llm_provider = llm_provider or config.llm_provider
     ollama_base_url = None
@@ -71,13 +98,13 @@ def dev(
 
     _preflight()
 
-    harness_dir = workspace_root / ".harness"
+    harness_dir = layout.build_context / ".harness"
     harness_dir.mkdir(exist_ok=True)
 
     dockerfile_path = harness_dir / f"{project_dir.name}.Dockerfile"
-    dockerfile_path.write_text(
-        render_dockerfile(entrypoint=entrypoint, agent_dir=str(agent_dir), port=_AGENT_PORT)
-    )
+    dockerfile_path.write_text(_agent_dockerfile_content(layout))
+
+    dashboard_build_context, dashboard_dockerfile = _dashboard_build_info(layout, harness_dir)
 
     otel_config_path = harness_dir / "otel-collector-config.yaml"
     otel_config_path.write_text(render_otel_collector_config())
@@ -86,10 +113,12 @@ def dev(
     compose_path.write_text(
         render_compose(
             agent_name=project_dir.name,
-            workspace_root=workspace_root,
+            agent_build_context=layout.build_context,
             agent_dir=project_dir,
             agent_dockerfile=dockerfile_path,
             otel_collector_config=otel_config_path,
+            dashboard_build_context=dashboard_build_context,
+            dashboard_dockerfile=dashboard_dockerfile,
             agent_port=_AGENT_PORT,
             dashboard_port=_DASHBOARD_PORT,
             api_token=config.api_token,
@@ -98,7 +127,9 @@ def dev(
         )
     )
 
-    typer.echo(f"Agent Card:  http://localhost:{_AGENT_PORT}/.well-known/agent-card.json")
+    typer.echo(
+        f"Agent ({layout.mode}) Card: http://localhost:{_AGENT_PORT}/.well-known/agent-card.json"
+    )
     typer.echo(f"Dashboard:   http://localhost:{_DASHBOARD_PORT}")
     typer.echo(f"Jaeger:      http://localhost:{_JAEGER_UI_PORT}")
     typer.echo("")

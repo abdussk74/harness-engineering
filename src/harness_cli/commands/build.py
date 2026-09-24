@@ -7,8 +7,8 @@ from pathlib import Path
 
 import typer
 
-from harness_cli.codegen.dockerfile import render_dockerfile
-from harness_cli.project import find_workspace_root, read_entrypoint
+from harness_cli.codegen.dockerfile import render_dockerfile, render_standalone_dockerfile
+from harness_cli.project import resolve_project
 
 
 def build(
@@ -24,13 +24,19 @@ def build(
         )
 
     project_dir = Path.cwd()
-    entrypoint = read_entrypoint(project_dir)
-    workspace_root = find_workspace_root(project_dir)
-    agent_dir = project_dir.relative_to(workspace_root)
+    layout = resolve_project(project_dir)
 
-    dockerfile_content = render_dockerfile(entrypoint=entrypoint, agent_dir=str(agent_dir))
-    dockerfile_path = workspace_root / ".harness" / f"{project_dir.name}.Dockerfile"
-    dockerfile_path.parent.mkdir(exist_ok=True)
+    if layout.mode == "monorepo":
+        dockerfile_content = render_dockerfile(
+            entrypoint=layout.entrypoint,
+            agent_dir=str(layout.agent_dir_relative_to_context),
+        )
+    else:
+        dockerfile_content = render_standalone_dockerfile(entrypoint=layout.entrypoint)
+
+    harness_dir = layout.build_context / ".harness"
+    harness_dir.mkdir(exist_ok=True)
+    dockerfile_path = harness_dir / f"{project_dir.name}.Dockerfile"
     dockerfile_path.write_text(dockerfile_content)
 
     cmd = [
@@ -46,9 +52,9 @@ def build(
         "--tag",
         tag,
         "--push" if push else "--load",
-        str(workspace_root),
+        str(layout.build_context),
     ]
-    typer.echo(f"Building {tag} (target={target}, platform={platform})...")
+    typer.echo(f"Building {tag} (target={target}, platform={platform}, mode={layout.mode})...")
     result = subprocess.run(cmd, check=False)  # noqa: S603 - fixed argv, no shell
     if result.returncode != 0:
         raise typer.Exit(code=result.returncode)

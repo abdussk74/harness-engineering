@@ -1,4 +1,5 @@
-"""Unit coverage for DeployTarget command construction.
+"""Unit coverage for DeployTarget command construction, both monorepo
+and standalone layouts.
 
 LocalDeployTarget is also verified live against real Docker (see the
 M10 commit message) — that's not re-run here for the same reason as
@@ -8,7 +9,8 @@ exercise end to end, which PLAN.md explicitly doesn't require for v1
 ("buildable, even if I don't run it day one") — the Helm chart itself
 is validated separately via `helm lint`/`helm template` (see the M10
 commit message), and what's tested here is that this code builds the
-right `docker`/`helm`/`kubectl` commands, via a mocked subprocess.run.
+right `docker`/`helm`/`kubectl`/`git` commands, via a mocked
+subprocess.run.
 """
 
 from __future__ import annotations
@@ -19,16 +21,31 @@ from unittest.mock import MagicMock, patch
 from harness_cli.deploy_targets.base import AgentBuildSpec, BuildResult, DeployConfig
 from harness_cli.deploy_targets.kubernetes import KubernetesDeployTarget
 from harness_cli.deploy_targets.local import LocalDeployTarget
+from harness_cli.project import ProjectLayout
+
+
+def _monorepo_layout(tmp_path: Path) -> ProjectLayout:
+    return ProjectLayout(
+        mode="monorepo",
+        build_context=tmp_path,
+        project_dir=tmp_path / "examples" / "research-agent",
+        entrypoint="agent:ResearchAgent",
+    )
+
+
+def _standalone_layout(tmp_path: Path) -> ProjectLayout:
+    return ProjectLayout(
+        mode="standalone",
+        build_context=tmp_path,
+        project_dir=tmp_path,
+        entrypoint="agent:CodeReviewAgent",
+        harness_git_url="https://github.com/abdussk74/harness-engineering.git",
+        harness_git_ref="v1.0.0",
+    )
 
 
 def test_local_build_invokes_buildx_with_runtime_target(tmp_path: Path) -> None:
-    spec = AgentBuildSpec(
-        name="research-agent",
-        entrypoint="agent:ResearchAgent",
-        project_dir=tmp_path / "examples" / "research-agent",
-        workspace_root=tmp_path,
-        port=8080,
-    )
+    spec = AgentBuildSpec(name="research-agent", layout=_monorepo_layout(tmp_path), port=8080)
     (tmp_path / ".harness").mkdir(exist_ok=True)
     target = LocalDeployTarget()
 
@@ -42,6 +59,18 @@ def test_local_build_invokes_buildx_with_runtime_target(tmp_path: Path) -> None:
     assert cmd[:3] == ["docker", "buildx", "build"]
     assert "--target" in cmd and cmd[cmd.index("--target") + 1] == "runtime"
     assert "--load" in cmd
+
+
+def test_local_build_standalone_mode_uses_agent_dir_as_build_context(tmp_path: Path) -> None:
+    spec = AgentBuildSpec(name="code-review-agent", layout=_standalone_layout(tmp_path), port=8080)
+    target = LocalDeployTarget()
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        target.build(spec)
+
+    cmd = mock_run.call_args[0][0]
+    assert cmd[-1] == str(tmp_path)  # build context is the agent's own dir, not a workspace root
 
 
 def test_local_deploy_runs_container_with_env_vars() -> None:
@@ -60,13 +89,7 @@ def test_local_deploy_runs_container_with_env_vars() -> None:
 
 
 def test_kubernetes_build_pushes_multi_arch_to_the_registry(tmp_path: Path) -> None:
-    spec = AgentBuildSpec(
-        name="research-agent",
-        entrypoint="agent:ResearchAgent",
-        project_dir=tmp_path / "examples" / "research-agent",
-        workspace_root=tmp_path,
-        port=8080,
-    )
+    spec = AgentBuildSpec(name="research-agent", layout=_monorepo_layout(tmp_path), port=8080)
     (tmp_path / ".harness").mkdir(exist_ok=True)
     target = KubernetesDeployTarget(registry="ghcr.io/example")
 
@@ -78,6 +101,26 @@ def test_kubernetes_build_pushes_multi_arch_to_the_registry(tmp_path: Path) -> N
     cmd = mock_run.call_args[0][0]
     assert "--push" in cmd
     assert "--platform" in cmd and cmd[cmd.index("--platform") + 1] == "linux/amd64,linux/arm64"
+    assert target._chart_path == tmp_path / "helm" / "harness-agent"  # noqa: SLF001
+
+
+def test_kubernetes_build_standalone_mode_fetches_chart_via_git_clone(tmp_path: Path) -> None:
+    spec = AgentBuildSpec(name="code-review-agent", layout=_standalone_layout(tmp_path), port=8080)
+    target = KubernetesDeployTarget(registry="ghcr.io/example")
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        target.build(spec)
+
+    calls = [call.args[0] for call in mock_run.call_args_list]
+    clone_calls = [c for c in calls if c[:2] == ["git", "clone"]]
+    assert len(clone_calls) == 1
+    clone_cmd = clone_calls[0]
+    assert "--branch" in clone_cmd and clone_cmd[clone_cmd.index("--branch") + 1] == "v1.0.0"
+    assert "https://github.com/abdussk74/harness-engineering.git" in clone_cmd
+    assert target._chart_path == (  # noqa: SLF001
+        tmp_path / ".harness" / "_harness-chart-src" / "helm" / "harness-agent"
+    )
 
 
 def test_kubernetes_deploy_runs_helm_upgrade_install_with_image_and_env() -> None:

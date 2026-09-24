@@ -11,7 +11,7 @@ from harness.config import HarnessConfig
 from harness_cli.deploy_targets.base import AgentBuildSpec, DeployConfig, DeployTarget
 from harness_cli.deploy_targets.kubernetes import KubernetesDeployTarget
 from harness_cli.deploy_targets.local import LocalDeployTarget
-from harness_cli.project import find_workspace_root, read_entrypoint
+from harness_cli.project import resolve_project
 
 _AGENT_PORT = 8080
 
@@ -27,15 +27,8 @@ def deploy(
 ) -> None:
     """Builds and deploys the agent in the current directory."""
     project_dir = Path.cwd()
-    entrypoint = read_entrypoint(project_dir)
-    workspace_root = find_workspace_root(project_dir)
-    spec = AgentBuildSpec(
-        name=project_dir.name,
-        entrypoint=entrypoint,
-        project_dir=project_dir,
-        workspace_root=workspace_root,
-        port=_AGENT_PORT,
-    )
+    layout = resolve_project(project_dir)
+    spec = AgentBuildSpec(name=project_dir.name, layout=layout, port=_AGENT_PORT)
     config = HarnessConfig()
     deploy_env = {"HARNESS_API_TOKEN": config.api_token} if config.api_token else {}
 
@@ -49,7 +42,7 @@ def deploy(
     else:
         raise typer.BadParameter(f"Unknown target '{target}'; expected 'local' or 'k8s'.")
 
-    typer.echo(f"Building {spec.name} for {target}...")
+    typer.echo(f"Building {spec.name} ({layout.mode}) for {target}...")
     build_result = deploy_target.build(spec)
     typer.echo(f"Built {build_result.image}")
 

@@ -8,7 +8,7 @@ import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
-from harness_cli.codegen.dockerfile import render_dockerfile
+from harness_cli.codegen.dockerfile import render_dockerfile, render_standalone_dockerfile
 from harness_cli.deploy_targets.base import (
     AgentBuildSpec,
     BuildResult,
@@ -16,6 +16,7 @@ from harness_cli.deploy_targets.base import (
     DeployResult,
     DeployStatus,
 )
+from harness_cli.project import DEFAULT_HARNESS_GIT_URL, fetch_harness_repo_shallow
 
 
 class KubernetesDeployTarget:
@@ -32,13 +33,20 @@ class KubernetesDeployTarget:
         self._chart_path: Path | None = None
 
     def build(self, spec: AgentBuildSpec) -> BuildResult:
+        layout = spec.layout
         image = f"{self._registry}/{spec.name}:latest"
-        dockerfile_path = spec.workspace_root / ".harness" / f"{spec.name}.Dockerfile"
-        dockerfile_path.parent.mkdir(exist_ok=True)
-        agent_dir = spec.project_dir.relative_to(spec.workspace_root)
-        dockerfile_path.write_text(
-            render_dockerfile(entrypoint=spec.entrypoint, agent_dir=str(agent_dir), port=spec.port)
-        )
+        harness_dir = layout.build_context / ".harness"
+        dockerfile_path = harness_dir / f"{spec.name}.Dockerfile"
+        harness_dir.mkdir(exist_ok=True)
+        if layout.mode == "monorepo":
+            content = render_dockerfile(
+                entrypoint=layout.entrypoint,
+                agent_dir=str(layout.agent_dir_relative_to_context),
+                port=spec.port,
+            )
+        else:
+            content = render_standalone_dockerfile(entrypoint=layout.entrypoint, port=spec.port)
+        dockerfile_path.write_text(content)
         subprocess.run(
             [
                 "docker",
@@ -53,11 +61,24 @@ class KubernetesDeployTarget:
                 "--tag",
                 image,
                 "--push",
-                str(spec.workspace_root),
+                str(layout.build_context),
             ],
             check=True,
         )
-        self._chart_path = spec.workspace_root / "helm" / "harness-agent"
+
+        if layout.mode == "monorepo":
+            self._chart_path = layout.build_context / "helm" / "harness-agent"
+        else:
+            # No local Helm chart in a standalone agent's own repo — fetch
+            # it from the same Harness source the agent pins, matching
+            # how the dashboard build handles the same gap (see
+            # harness_cli.commands.dev).
+            clone_dir = fetch_harness_repo_shallow(
+                git_url=layout.harness_git_url or DEFAULT_HARNESS_GIT_URL,
+                git_ref=layout.harness_git_ref,
+                dest=harness_dir / "_harness-chart-src",
+            )
+            self._chart_path = clone_dir / "helm" / "harness-agent"
         return BuildResult(image=image, port=spec.port)
 
     def deploy(self, build: BuildResult, config: DeployConfig) -> DeployResult:
